@@ -1,0 +1,147 @@
+---
+title: "Product recommendation based on Market Basket Analysis"
+output: html_notebook
+---
+
+## Purpose of this project
+This project aims at showing how to leverage Market Basket Analysis for product recommendation - something that the customers might want to buy as well. Not only does it improve the sales, but also the customer experience and the ultimate life time value. As for the offlne store, we could reduce their efforts to buy the products by putting the items which are usually bought together close to each other.
+
+Secondly, if we use the dataset embedded in arules packages. The dataset is already transformed into class, with products categorized into diiferent levels. Here, non-pre-processed raw data is used as I want to show you how to perform market basket analysis from a scratch.
+
+## Dataset
+The original dataset can be downloaded here [https://archive.ics.uci.edu/ml/datasets/Online+Retail]
+```{r}
+# Load packages 
+pacman::p_load(arules, arulesViz)
+install.packages("readxl")
+install.packages("pacman")
+library(readxl)
+library(tidyverse)
+library(dplyr)
+
+# Data Import 
+data <- read_excel("Online Retail.xlsx")
+
+# Data Structure
+str(data)
+
+# Descriptive Statistics of dataset
+summary(data)
+```
+
+To perform the Basket Market Analysis, we only care about if the certain item presents in each transaction, but not how many. 
+```{r}
+# Basket data
+subset_data <- data %>% 
+  select(InvoiceNo, Description)
+
+head(subset_data)
+```
+
+```{r}
+# How many items are there in each transaction
+df_basket = subset_data %>%
+  group_by(InvoiceNo) %>%
+  summarise(
+    n_total = n(),
+    n_items = n_distinct(Description)
+  )
+df_basket
+
+```
+
+Since the dataset contains some outlier, we would use median, instead of mean to find out how many products the customers usually buy for each transaction
+```{r}
+# How big are baskets
+df_basket %>%
+  summarise(
+    avg_total_items = median(n_total),
+    avg_dist_items = median(n_items)
+  )
+```
+
+## data transformation
+```{r}
+# Transform InvoiceID into a factor in order to use it as a grouping attribute
+subset_data$InvoiceNo = factor(subset_data$InvoiceNo)
+
+# split into groups
+data_list = split(subset_data$Description, subset_data$InvoiceNo)
+
+# Transform to transactional dataset by coercing into transactions class
+data_trx = as(data_list, "transactions")
+
+#inspect transaction
+inspect(head(data_trx)) # items are now assembled into set with one row per transaction
+
+```
+
+```{r}
+# Summary of the transaction data
+summary(data_trx)
+```
+
+```{r}
+# pattern in trx & sparcity in data
+image(sample(data_trx, 10000)) 
+```
+
+As from the above graph the density of items is very sparse, which is consistent to the previous summary of transaction data
+
+# The most popular items in the dataset
+```{r}
+# Most popular items
+itemFrequencyPlot(data_trx, type= "relative", topN= 10, horiz = TRUE, col = "steelblue3")
+```
+
+# The least popular items in the dataset
+Since the least 12 popular items are not very meaningful, it can be removed in this case. As for simplicity, Least 20 popular items will be shown instead.
+```{r}
+sort(table(unlist(LIST(data_trx)))[1:20])
+```
+
+<strong>Support</strong> - popularity of an itemset
+
+<strong>Confidence</strong> - how often the rule is true
+conf(X -> Y) = supp(X U Y) / supp(X)
+confidence shows the percentage in which Y is bought with X
+
+<strong>Lift</strong> - how strong is the association
+How likelihood of itemset Y being purchased when item X is purchased while taking into account the popularity of Y
+
+lift(X -> Y) = supp(X U Y)/ supp(X) X supp(Y)
+defined as the observed support to that expected if X and Y were independent
+
+Lift > 1: Y is likely to be bought with X
+Lift < 1,  Y is unlikely to be bought if X is bought
+
+```{r}
+# Cross tables by index
+tbl = crossTable(data_trx, sort = TRUE)
+tbl[1:4,1:4]
+
+crossTable(data_trx, measure = 'lift', sort=T)[1:4,1:4]
+
+```
+
+From the above table, when white hanging heart T-LIGHT holder is bought, it is highly likely that party bunting to be bought as the lift among two items is 2.57.
+
+```{r}
+# Generate the association rules with apriori algorithm
+online_rules <- apriori(data_trx, parameter = list(support = 0.02, confidence = 0.7))
+inspect(head(online_rules, by = "lift"))
+```
+
+In Rule #1, When Green & Roses regency teacup and saucer is bought, we are 70% confident that pink regency teacup and saucer is bought as well.
+```{r}
+# Interactive plot with measures of support and lift
+plot(online_rules, measure = c("support", "lift"), shading = "confidence", engine='plotly')
+```
+
+
+```{r}
+# Network graph
+plot(online_rules, method = "graph", engine = "htmlwidget")
+```
+
+The above graph is generated based on confidence level of 0.7% and 0.02 support level. You can change these two parameters according to your need.
